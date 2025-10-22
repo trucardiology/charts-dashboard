@@ -30,3 +30,70 @@ details > summary > span::before {
 details[open] > summary > span::before {
     transform: rotate(90deg);
 }
+
+/* Styles for the new attachment column */
+.attachment-cell {
+    position: relative;
+    border: 2px dashed #d1d5db; /* border-gray-300 */
+    border-radius: 0.375rem; /* rounded-md */
+    min-height: 50px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 0.25rem;
+    font-size: 0.75rem; /* text-xs */
+    line-height: 1rem;
+    color: #6b7280; /* text-gray-500 */
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.2s;
+}
+
+.attachment-cell.drag-over {
+    border-color: #3b82f6; /* border-blue-500 */
+    background-color: #eff6ff; /* bg-blue-50 */
+}
+
+.attachment-cell.has-file {
+    border-style: solid;
+    border-color: #d1d5db; /* border-gray-300 */
+    background-color: #f9fafb; /* bg-gray-50 */
+    justify-content: space-between;
+    padding: 0.5rem;
+    cursor: default;
+}
+
+.file-info {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    overflow: hidden;
+}
+
+.file-name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 0.875rem; /* text-sm */
+    color: #111827; /* text-gray-900 */
+    font-weight: 500; /* font-medium */
+}
+
+.remove-file-btn {
+    color: #ef4444; /* text-red-500 */
+    font-weight: bold;
+    font-size: 1.125rem; /* text-lg */
+    line-height: 1;
+    padding: 0 0.25rem;
+    border-radius: 9999px; /* rounded-full */
+    background-color: transparent;
+    border: none;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.remove-file-btn:hover {
+    color: #fff;
+    background-color: #ef4444; /* bg-red-500 */
+}
+

@@ -36,13 +36,18 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const saveData = () => {
-        const dataToSave = {
-            ...appState,
-            reasonTags: Array.from(appState.reasonTags),
-            resultsNeededTags: Array.from(appState.resultsNeededTags),
-            visitTypeTags: Array.from(appState.visitTypeTags)
-        };
-        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(dataToSave));
+        try {
+            const dataToSave = {
+                ...appState,
+                reasonTags: Array.from(appState.reasonTags),
+                resultsNeededTags: Array.from(appState.resultsNeededTags),
+                visitTypeTags: Array.from(appState.visitTypeTags)
+            };
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(dataToSave));
+        } catch (e) {
+            console.error("Error saving to localStorage:", e);
+            showNotification('Error: Could not save data. Storage may be full.', 'error');
+        }
     };
 
     const loadData = () => {
@@ -57,6 +62,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (Array.isArray(patient['Visit Type'])) {
                         patient['Visit Type'] = patient['Visit Type'][0] || '';
                     }
+                    // Initialize new fields if they don't exist
+                    if (!patient.hasOwnProperty('Chart')) patient['Chart'] = null;
+                    if (!patient.hasOwnProperty('Extracted Summary')) patient['Extracted Summary'] = null;
                 });
             });
             
@@ -177,6 +185,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 'Age': formatAge(row['Age']),
                 'Reason': [],
                 'Results Needed': [],
+                'Chart': null,
+                'Extracted Summary': null,
                 'isPrinted': false,
                 'isDone': false,
                 'isCancelled': false,
@@ -291,7 +301,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const allKeys = new Set();
         Object.values(appState.patientLists).forEach(list => list.forEach(p => Object.keys(p).forEach(k => allKeys.add(k))));
-        const fixedOrder = ['Visit Type', 'Time', 'Patient Name', 'Sex', 'DOB', 'Age', 'Reason', 'Results Needed'];
+        const fixedOrder = ['Visit Type', 'Time', 'Patient Name', 'Sex', 'DOB', 'Age', 'Reason', 'Results Needed', 'Chart', 'Extracted Summary'];
         const checkboxColumns = ['Printed', 'Done', 'Cancelled'];
         const internalKeys = ['id', 'isPrinted', 'isDone', 'isCancelled', 'isEmptySlot', 'isDoubleBooked'];
         const otherColumns = Array.from(allKeys).filter(k => 
@@ -331,6 +341,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const newPatient = {
                     id: `manual-${dos}-${Date.now()}`, 'Visit Type': '', Time: '', 'Patient Name': '', 
                     Sex: '', Age: '', DOB: '', Phone: '', Account: '', Reason: [], 'Results Needed': [],
+                    'Chart': null, 'Extracted Summary': null,
                     isPrinted: false, isDone: false, isCancelled: false,
                 };
                 appState.patientLists[dos].push(newPatient);
@@ -381,6 +392,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         const newPatient = {
                             id: `${dos}-${Date.now()}`, Time: patient.Time, 'Visit Type': '',
                             'Patient Name': initialPatientName, Sex: '', Age: '', Reason: [], 'Results Needed': [],
+                            'Chart': null, 'Extracted Summary': null,
                             isPrinted: false, isDone: false, isCancelled: false
                         };
                         appState.patientLists[dos].push(newPatient);
@@ -436,6 +448,10 @@ document.addEventListener('DOMContentLoaded', () => {
                             cell.appendChild(createInteractiveCell(patient, 'Reason', 'reason-datalist', appState.reasonTags, 'bg-blue-100 text-blue-800', 'Add reason...'));
                         } else if (header === 'Results Needed') {
                             cell.appendChild(createResultsNeededCell(patient));
+                        } else if (header === 'Chart') {
+                            cell.appendChild(createAttachmentCell(patient, 'Chart', 'application/pdf', '.pdf'));
+                        } else if (header === 'Extracted Summary') {
+                            cell.appendChild(createAttachmentCell(patient, 'Extracted Summary', 'application/pdf,text/html', '.pdf, .html'));
                         } else {
                             const editableCell = createEditableCell(patient, header);
                             if (header === 'Time' && (isNonStandardTime(patient[header]) || patient.isDoubleBooked)) {
@@ -582,6 +598,130 @@ document.addEventListener('DOMContentLoaded', () => {
         return container;
     };
 
+    const createAttachmentCell = (patient, key, acceptMime, acceptExtension) => {
+        const cell = document.createElement('div');
+        cell.className = 'attachment-cell';
+    
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.className = 'hidden';
+        fileInput.accept = acceptExtension;
+    
+        const renderAttachedFile = () => {
+            const fileData = patient[key];
+            cell.innerHTML = ''; // Clear cell
+            cell.classList.add('has-file');
+    
+            const fileInfo = document.createElement('div');
+            fileInfo.className = 'file-info';
+    
+            // Icon
+            const icon = document.createElement('span');
+            icon.textContent = fileData.name.endsWith('.pdf') ? '📄' : '💻';
+            icon.className = 'text-lg';
+            
+            // File name (clickable link)
+            const fileName = document.createElement('a');
+            fileName.className = 'file-name';
+            fileName.textContent = fileData.name;
+            fileName.href = fileData.dataUrl;
+            fileName.target = '_blank';
+            fileName.title = `Click to open ${fileData.name}`;
+            
+            fileInfo.appendChild(icon);
+            fileInfo.appendChild(fileName);
+    
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'remove-file-btn';
+            removeBtn.innerHTML = '&times;';
+            removeBtn.title = 'Remove file';
+            removeBtn.onclick = (e) => {
+                e.stopPropagation();
+                patient[key] = null;
+                saveData();
+                renderEmpty();
+            };
+    
+            cell.appendChild(fileInfo);
+            cell.appendChild(removeBtn);
+        };
+    
+        const renderEmpty = () => {
+            cell.innerHTML = 'Drop file or click';
+            cell.classList.remove('has-file');
+        };
+    
+        const handleFileAttachment = (file) => {
+            if (!file) return;
+            const allowedTypes = acceptMime.split(',');
+            if (!allowedTypes.includes(file.type)) {
+                showNotification(`Invalid file type. Please upload ${acceptExtension}.`, 'error');
+                return;
+            }
+    
+            const reader = new FileReader();
+            reader.onload = () => {
+                patient[key] = {
+                    name: file.name,
+                    dataUrl: reader.result,
+                };
+                saveData();
+                renderAttachedFile();
+            };
+            reader.onerror = () => {
+                showNotification('Error reading file.', 'error');
+            };
+            reader.readAsDataURL(file);
+        };
+    
+        // Click to browse
+        cell.onclick = () => {
+            if (!patient[key]) {
+                fileInput.click();
+            }
+        };
+        fileInput.onchange = (e) => {
+            handleFileAttachment(e.target.files[0]);
+            fileInput.value = ''; // Reset for next upload
+        };
+    
+        // Drag and drop events
+        cell.ondragover = (e) => {
+            e.preventDefault();
+            if (!patient[key]) {
+                cell.classList.add('drag-over');
+            }
+        };
+        cell.ondragenter = (e) => {
+            e.preventDefault();
+            if (!patient[key]) {
+                cell.classList.add('drag-over');
+            }
+        };
+        cell.ondragleave = (e) => {
+            e.preventDefault();
+            cell.classList.remove('drag-over');
+        };
+        cell.ondrop = (e) => {
+            e.preventDefault();
+            cell.classList.remove('drag-over');
+            if (!patient[key] && e.dataTransfer.files.length > 0) {
+                handleFileAttachment(e.dataTransfer.files[0]);
+            }
+        };
+    
+        // Initial render
+        if (patient[key] && patient[key].name) {
+            renderAttachedFile();
+        } else {
+            renderEmpty();
+        }
+    
+        // Append hidden file input
+        cell.appendChild(fileInput);
+        return cell;
+    };
+
     const setupEventListeners = () => {
         ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
             uploadArea.addEventListener(eventName, e => { e.preventDefault(); e.stopPropagation(); }, false);
@@ -611,3 +751,4 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     init();
 });
+
