@@ -31,16 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const PATIENT_LIST_STORE = 'patientLists';
     const APP_SETTINGS_STORE = 'appSettings';
 
-    let dbPromise = idb.openDB(DB_NAME, DB_VERSION, {
-        upgrade(db) {
-            if (!db.objectStoreNames.contains(PATIENT_LIST_STORE)) {
-                db.createObjectStore(PATIENT_LIST_STORE); // Key will be DOS string
-            }
-            if (!db.objectStoreNames.contains(APP_SETTINGS_STORE)) {
-                db.createObjectStore(APP_SETTINGS_STORE); // Key will be setting name (e.g., 'reasonTags')
-            }
-        },
-    });
+    let dbPromise; // Declare here, initialize in init
 
     // --- Utility & Helper Functions ---
     const showNotification = (message, type = 'info') => {
@@ -872,11 +863,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const init = async () => {
         try {
+            // Initialize dbPromise HERE, inside the try block
+            dbPromise = idb.openDB(DB_NAME, DB_VERSION, {
+                upgrade(db) {
+                    if (!db.objectStoreNames.contains(PATIENT_LIST_STORE)) {
+                        db.createObjectStore(PATIENT_LIST_STORE); // Key will be DOS string
+                    }
+                    if (!db.objectStoreNames.contains(APP_SETTINGS_STORE)) {
+                        db.createObjectStore(APP_SETTINGS_STORE); // Key will be setting name (e.g., 'reasonTags')
+                    }
+                },
+            });
+
             await loadData();
             setupEventListeners();
         } catch (e) {
             console.error("Critical error on initialization:", e);
-            showNotification('Application failed to start. Please clear cache or site data.', 'error');
+            if (typeof idb === 'undefined' || (e instanceof ReferenceError && e.message.includes('idb'))) {
+                 showNotification('Error: Failed to load database library. Check network or ad blocker.', 'error');
+            } else {
+                 showNotification('Application failed to start. Please clear cache or site data.', 'error');
+            }
         }
     };
     init();
