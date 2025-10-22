@@ -97,3 +97,9 @@ details[open] > summary > span::before {
     background-color: #ef4444; /* bg-red-500 */
 }
 
+/* PDF Modal Styles */
+.modal-iframe {
+    width: 100%;
+    height: 100%;
+}
+
