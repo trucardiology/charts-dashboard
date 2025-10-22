@@ -9,6 +9,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const dosInput = document.getElementById('dos-input');
     const submitDosBtn = document.getElementById('submit-dos-btn');
     const notificationContainer = document.getElementById('notification-container');
+    const pdfModal = document.getElementById('pdf-modal');
+    const pdfModalContent = document.getElementById('pdf-modal-content');
+    const pdfModalTitle = document.getElementById('pdf-modal-title');
+    const pdfModalCloseBtn = document.getElementById('pdf-modal-close-btn');
+    const pdfIframe = document.getElementById('pdf-iframe');
 
     // --- Application State ---
     let appState = {
@@ -23,48 +28,66 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Utility & Helper Functions ---
     const showNotification = (message, type = 'info') => {
-        const colors = {
-            success: 'bg-green-500',
-            error: 'bg-red-500',
-            info: 'bg-blue-500'
-        };
-        const notif = document.createElement('div');
-        notif.className = `text-white px-6 py-4 border-0 rounded-lg relative mb-4 shadow-lg ${colors[type]}`;
-        notif.innerHTML = `<span class="inline-block align-middle mr-8">${message}</span><button class="absolute bg-transparent text-2xl font-semibold leading-none right-0 top-0 mt-4 mr-6 outline-none focus:outline-none" onclick="this.parentElement.remove()"><span>×</span></button>`;
-        notificationContainer.appendChild(notif);
-        setTimeout(() => { notif.remove(); }, 5000);
+        try {
+            const colors = {
+                success: 'bg-green-500',
+                error: 'bg-red-500',
+                info: 'bg-blue-500'
+            };
+            const notif = document.createElement('div');
+            notif.className = `text-white px-6 py-4 border-0 rounded-lg relative mb-4 shadow-lg ${colors[type]}`;
+            notif.innerHTML = `<span class="inline-block align-middle mr-8">${message}</span><button class="absolute bg-transparent text-2xl font-semibold leading-none right-0 top-0 mt-4 mr-6 outline-none focus:outline-none" onclick="this.parentElement.remove()"><span>×</span></button>`;
+            notificationContainer.appendChild(notif);
+            setTimeout(() => { notif.remove(); }, 5000);
+        } catch (e) {
+            console.error("Failed to show notification:", e, message);
+        }
     };
 
     const saveData = () => {
-        const dataToSave = {
-            ...appState,
-            reasonTags: Array.from(appState.reasonTags),
-            resultsNeededTags: Array.from(appState.resultsNeededTags),
-            visitTypeTags: Array.from(appState.visitTypeTags)
-        };
-        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(dataToSave));
+        try {
+            const dataToSave = {
+                ...appState,
+                reasonTags: Array.from(appState.reasonTags),
+                resultsNeededTags: Array.from(appState.resultsNeededTags),
+                visitTypeTags: Array.from(appState.visitTypeTags)
+            };
+            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(dataToSave));
+        } catch (e) {
+            console.error("Error saving to localStorage:", e);
+            showNotification('Error: Could not save data. Storage may be full.', 'error');
+        }
     };
 
     const loadData = () => {
         const savedData = localStorage.getItem(LOCAL_STORAGE_KEY);
         if (savedData) {
-            const parsedData = JSON.parse(savedData);
-            appState.patientLists = parsedData.patientLists || {};
-            Object.values(appState.patientLists).forEach(list => {
-                list.forEach(patient => {
-                    delete patient['Provider'];
-                    delete patient['Appt Time'];
-                    if (Array.isArray(patient['Visit Type'])) {
-                        patient['Visit Type'] = patient['Visit Type'][0] || '';
-                    }
+            try {
+                const parsedData = JSON.parse(savedData);
+                appState.patientLists = parsedData.patientLists || {};
+                Object.values(appState.patientLists).forEach(list => {
+                    list.forEach(patient => {
+                        delete patient['Provider'];
+                        delete patient['Appt Time'];
+                        if (Array.isArray(patient['Visit Type'])) {
+                            patient['Visit Type'] = patient['Visit Type'][0] || '';
+                        }
+                        // Initialize new fields if they don't exist
+                        if (!patient.hasOwnProperty('Chart')) patient['Chart'] = null;
+                        if (!patient.hasOwnProperty('Extracted Summary')) patient['Extracted Summary'] = null;
+                    });
                 });
-            });
-            
-            appState.reasonTags = new Set(parsedData.reasonTags || []);
-            appState.resultsNeededTags = new Set(parsedData.resultsNeededTags || []);
-            appState.visitTypeTags = new Set(parsedData.visitTypeTags || []);
-            appState.columnOrder = (parsedData.columnOrder || []).filter(col => col !== 'Provider' && col !== 'Appt Time');
-            renderApp();
+                
+                appState.reasonTags = new Set(parsedData.reasonTags || []);
+                appState.resultsNeededTags = new Set(parsedData.resultsNeededTags || []);
+                appState.visitTypeTags = new Set(parsedData.visitTypeTags || []);
+                appState.columnOrder = (parsedData.columnOrder || []).filter(col => col !== 'Provider' && col !== 'Appt Time');
+                renderApp();
+            } catch (e) {
+                console.error("Error parsing saved data:", e);
+                showNotification('Error loading data. Local storage was corrupt and has been cleared.', 'error');
+                localStorage.removeItem(LOCAL_STORAGE_KEY); // Clear corrupt data
+            }
         }
     };
 
@@ -143,91 +166,114 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Core Application Logic ---
     const handleFile = (file) => {
-        const fileName = file.name.toLowerCase();
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const data = new Uint8Array(e.target.result);
-            const workbook = XLSX.read(data, { type: 'array', cellDates: true });
-            const jsonData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { defval: "" });
-            if (jsonData.length === 0) { showNotification('File is empty.', 'error'); return; }
-            if (fileName.includes('ovenctrs')) {
-                appState.fileToProcess = jsonData;
-                dosInput.value = '';
-                dosModal.classList.remove('hidden');
-            } else if (fileName.includes('registry_report') || fileName.includes('cwreport')) {
-                processSupplementalData(jsonData);
-            } else { showNotification(`Unrecognized file: "${file.name}".`, 'error'); }
-        };
-        reader.onerror = () => showNotification(`Error reading file "${file.name}".`, 'error');
-        reader.readAsArrayBuffer(file);
+        try {
+            const fileName = file.name.toLowerCase();
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+                    const jsonData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { defval: "" });
+                    if (jsonData.length === 0) { showNotification('File is empty.', 'error'); return; }
+                    if (fileName.includes('ovenctrs')) {
+                        appState.fileToProcess = jsonData;
+                        dosInput.value = '';
+                        dosModal.classList.remove('hidden');
+                    } else if (fileName.includes('registry_report') || fileName.includes('cwreport')) {
+                        processSupplementalData(jsonData);
+                    } else { showNotification(`Unrecognized file: "${file.name}".`, 'error'); }
+                } catch (readError) {
+                    console.error("Error reading workbook:", readError);
+                    showNotification(`Error processing file: ${file.name}. It may be corrupt or in an unsupported format.`, 'error');
+                }
+            };
+            reader.onerror = () => showNotification(`Error reading file "${file.name}".`, 'error');
+            reader.readAsArrayBuffer(file);
+        } catch (fileError) {
+            console.error("Error in handleFile:", fileError);
+            showNotification('An unexpected error occurred while handling the file.', 'error');
+        }
     };
 
     const processPrimaryData = (data, dos) => {
         if (!data || data.length === 0) return;
-        const visitStsIndex = Object.keys(data[0]).indexOf('Visit Sts');
-        const columnsToRemove = visitStsIndex !== -1 ? Object.keys(data[0]).slice(visitStsIndex) : [];
-        columnsToRemove.push('P/R', 'Provider', 'Appt Time');
-        const processedList = data.map((row, index) => {
-            const newRow = {
-                id: `${dos}-${index}`,
-                'Visit Type': row['Visit Type'] ? String(row['Visit Type']) : '',
-                'Patient Name': row['Patient Name'],
-                'Time': formatTime(row['Appt Time']),
-                'Sex': formatSex(row['Sex']),
-                'Age': formatAge(row['Age']),
-                'Reason': [],
-                'Results Needed': [],
-                'isPrinted': false,
-                'isDone': false,
-                'isCancelled': false,
-            };
-            const filteredRow = { ...row };
-            columnsToRemove.forEach(col => delete filteredRow[col]);
-            Object.keys(filteredRow).forEach(key => { if (!(key in newRow)) newRow[key] = filteredRow[key]; });
-            return newRow;
-        });
-        appState.patientLists[dos] = processedList;
-        saveData();
-        renderApp();
-        showNotification(`Processed primary list for ${dos}.`, 'success');
+        try {
+            const visitStsIndex = Object.keys(data[0]).indexOf('Visit Sts');
+            const columnsToRemove = visitStsIndex !== -1 ? Object.keys(data[0]).slice(visitStsIndex) : [];
+            columnsToRemove.push('P/R', 'Provider', 'Appt Time');
+            const processedList = data.map((row, index) => {
+                const newRow = {
+                    id: `${dos}-${index}`,
+                    'Visit Type': row['Visit Type'] ? String(row['Visit Type']) : '',
+                    'Patient Name': row['Patient Name'],
+                    'Time': formatTime(row['Appt Time']),
+                    'Sex': formatSex(row['Sex']),
+                    'Age': formatAge(row['Age']),
+                    'Reason': [],
+                    'Results Needed': [],
+                    'Chart': null,
+                    'Extracted Summary': null,
+                    'isPrinted': false,
+                    'isDone': false,
+                    'isCancelled': false,
+                };
+                const filteredRow = { ...row };
+                columnsToRemove.forEach(col => delete filteredRow[col]);
+                Object.keys(filteredRow).forEach(key => { if (!(key in newRow)) newRow[key] = filteredRow[key]; });
+                return newRow;
+            });
+            appState.patientLists[dos] = processedList;
+            saveData();
+            renderApp();
+            showNotification(`Processed primary list for ${dos}.`, 'success');
+        } catch (e) {
+            console.error("Error processing primary data:", e);
+            showNotification('Error processing primary data. Check file columns.', 'error');
+            appState.fileToProcess = null; // Clear file in case of error
+        }
     };
     
     const processSupplementalData = (data) => {
-        if (Object.keys(appState.patientLists).length === 0) { showNotification('Upload a primary list before supplemental data.', 'error'); return; }
-        const firstRow = data[0] || {};
-        const sourceHeaders = Object.keys(firstRow);
-        const columnMapping = { 'Patient Name': 'Patient Name', 'DOB': 'DOB', 'Tel No.': 'Phone', 'Acc #': 'Account' };
-        const foundHeaders = {}, missingColumns = [];
-        for (const requiredHeader of Object.keys(columnMapping)) {
-            const foundKey = sourceHeaders.find(h => h.trim().toLowerCase() === requiredHeader.toLowerCase());
-            if (foundKey) foundHeaders[requiredHeader] = foundKey;
-            else missingColumns.push(requiredHeader);
-        }
-        if (missingColumns.length > 0) { showNotification(`Supplemental file missing: ${missingColumns.join(', ')}.`, 'error'); return; }
-        const supplementalMap = new Map();
-        data.forEach(row => {
-            const normalized = normalizeName(row[foundHeaders['Patient Name']]);
-            if (normalized) {
-                supplementalMap.set(normalized, {
-                    [columnMapping['DOB']]: formatDOB(row[foundHeaders['DOB']]),
-                    [columnMapping['Tel No.']]: formatPhone(row[foundHeaders['Tel No.']]),
-                    [columnMapping['Acc #']]: row[foundHeaders['Acc #']],
-                });
+        try {
+            if (Object.keys(appState.patientLists).length === 0) { showNotification('Upload a primary list before supplemental data.', 'error'); return; }
+            const firstRow = data[0] || {};
+            const sourceHeaders = Object.keys(firstRow);
+            const columnMapping = { 'Patient Name': 'Patient Name', 'DOB': 'DOB', 'Tel No.': 'Phone', 'Acc #': 'Account' };
+            const foundHeaders = {}, missingColumns = [];
+            for (const requiredHeader of Object.keys(columnMapping)) {
+                const foundKey = sourceHeaders.find(h => h.trim().toLowerCase() === requiredHeader.toLowerCase());
+                if (foundKey) foundHeaders[requiredHeader] = foundKey;
+                else missingColumns.push(requiredHeader);
             }
-        });
-        let mergeCount = 0;
-        Object.values(appState.patientLists).forEach(list => {
-            list.forEach(patient => {
-                const normalized = normalizeName(patient['Patient Name']);
-                if (supplementalMap.has(normalized)) {
-                    Object.assign(patient, supplementalMap.get(normalized));
-                    mergeCount++;
+            if (missingColumns.length > 0) { showNotification(`Supplemental file missing: ${missingColumns.join(', ')}.`, 'error'); return; }
+            const supplementalMap = new Map();
+            data.forEach(row => {
+                const normalized = normalizeName(row[foundHeaders['Patient Name']]);
+                if (normalized) {
+                    supplementalMap.set(normalized, {
+                        [columnMapping['DOB']]: formatDOB(row[foundHeaders['DOB']]),
+                        [columnMapping['Tel No.']]: formatPhone(row[foundHeaders['Tel No.']]),
+                        [columnMapping['Acc #']]: row[foundHeaders['Acc #']],
+                    });
                 }
             });
-        });
-        saveData();
-        renderApp();
-        showNotification(`Merged data for ${mergeCount} patient(s).`, 'success');
+            let mergeCount = 0;
+            Object.values(appState.patientLists).forEach(list => {
+                list.forEach(patient => {
+                    const normalized = normalizeName(patient['Patient Name']);
+                    if (supplementalMap.has(normalized)) {
+                        Object.assign(patient, supplementalMap.get(normalized));
+                        mergeCount++;
+                    }
+                });
+            });
+            saveData();
+            renderApp();
+            showNotification(`Merged data for ${mergeCount} patient(s).`, 'success');
+        } catch (e) {
+            console.error("Error processing supplemental data:", e);
+            showNotification('Error processing supplemental data. Check file columns.', 'error');
+        }
     };
 
     const updateDatalist = (id, tags) => {
@@ -281,6 +327,18 @@ document.addEventListener('DOMContentLoaded', () => {
         return cellContent;
     };
 
+    // --- PDF Modal Functions ---
+    const openPdfModal = (dataUrl, fileName) => {
+        pdfModalTitle.textContent = fileName || 'PDF Viewer';
+        pdfIframe.src = dataUrl;
+        pdfModal.classList.remove('hidden');
+    };
+
+    const closePdfModal = () => {
+        pdfIframe.src = 'about:blank'; // Clear the iframe to stop loading
+        pdfModal.classList.add('hidden');
+    };
+
     // --- Rendering Logic ---
     const renderApp = () => {
         const hasData = Object.keys(appState.patientLists).length > 0;
@@ -291,13 +349,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const allKeys = new Set();
         Object.values(appState.patientLists).forEach(list => list.forEach(p => Object.keys(p).forEach(k => allKeys.add(k))));
-        const fixedOrder = ['Visit Type', 'Time', 'Patient Name', 'Sex', 'DOB', 'Age', 'Reason', 'Results Needed'];
+        const fixedOrder = ['Visit Type', 'Time', 'Patient Name', 'Sex', 'DOB', 'Age', 'Reason', 'Results Needed', 'Chart', 'Extracted Summary'];
         const checkboxColumns = ['Printed', 'Done', 'Cancelled'];
         const internalKeys = ['id', 'isPrinted', 'isDone', 'isCancelled', 'isEmptySlot', 'isDoubleBooked'];
         const otherColumns = Array.from(allKeys).filter(k => 
             !fixedOrder.includes(k) && !checkboxColumns.includes(k) && !internalKeys.includes(k)
         );
-        const displayOrder = [...fixedOrder.filter(c => allKeys.has(c) || c === 'Visit Type'), ...otherColumns, ...checkboxColumns];
+        const displayOrder = [...fixedOrder.filter(c => allKeys.has(c) || c === 'Visit Type' || c === 'Chart' || c === 'Extracted Summary'), ...otherColumns, ...checkboxColumns];
         appState.columnOrder = displayOrder;
 
         updateDatalist('visit-type-datalist', appState.visitTypeTags);
@@ -331,6 +389,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const newPatient = {
                     id: `manual-${dos}-${Date.now()}`, 'Visit Type': '', Time: '', 'Patient Name': '', 
                     Sex: '', Age: '', DOB: '', Phone: '', Account: '', Reason: [], 'Results Needed': [],
+                    'Chart': null, 'Extracted Summary': null,
                     isPrinted: false, isDone: false, isCancelled: false,
                 };
                 appState.patientLists[dos].push(newPatient);
@@ -381,6 +440,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         const newPatient = {
                             id: `${dos}-${Date.now()}`, Time: patient.Time, 'Visit Type': '',
                             'Patient Name': initialPatientName, Sex: '', Age: '', Reason: [], 'Results Needed': [],
+                            'Chart': null, 'Extracted Summary': null,
                             isPrinted: false, isDone: false, isCancelled: false
                         };
                         appState.patientLists[dos].push(newPatient);
@@ -436,6 +496,10 @@ document.addEventListener('DOMContentLoaded', () => {
                             cell.appendChild(createInteractiveCell(patient, 'Reason', 'reason-datalist', appState.reasonTags, 'bg-blue-100 text-blue-800', 'Add reason...'));
                         } else if (header === 'Results Needed') {
                             cell.appendChild(createResultsNeededCell(patient));
+                        } else if (header === 'Chart') {
+                            cell.appendChild(createAttachmentCell(patient, 'Chart', 'application/pdf', '.pdf'));
+                        } else if (header === 'Extracted Summary') {
+                            cell.appendChild(createAttachmentCell(patient, 'Extracted Summary', 'application/pdf,text/html', '.pdf,.html'));
                         } else {
                             const editableCell = createEditableCell(patient, header);
                             if (header === 'Time' && (isNonStandardTime(patient[header]) || patient.isDoubleBooked)) {
@@ -582,6 +646,159 @@ document.addEventListener('DOMContentLoaded', () => {
         return container;
     };
 
+    const createAttachmentCell = (patient, key, acceptMime, acceptExtension) => {
+        const cell = document.createElement('div');
+        cell.className = 'attachment-cell';
+    
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.className = 'hidden';
+        fileInput.accept = acceptExtension;
+    
+        const renderAttachedFile = () => {
+            const fileData = patient[key];
+            cell.innerHTML = ''; // Clear cell
+            cell.classList.add('has-file');
+    
+            const fileContainer = document.createElement('div');
+            fileContainer.className = 'file-info';
+    
+            // Clickable Icon
+            const iconLink = document.createElement('a');
+            const isPdf = fileData.name.toLowerCase().endsWith('.pdf');
+            const isHtml = fileData.name.toLowerCase().endsWith('.html');
+            iconLink.textContent = isPdf ? '📄' : (isHtml ? '💻' : '📎');
+            iconLink.className = 'text-2xl cursor-pointer'; // Make icon larger
+            iconLink.title = `Click to open ${fileData.name}`; // Keep the title for hover
+            
+            fileContainer.appendChild(iconLink);
+    
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'remove-file-btn';
+            removeBtn.innerHTML = '&times;';
+            removeBtn.title = 'Remove file';
+            removeBtn.onclick = (e) => {
+                e.stopPropagation();
+                patient[key] = null;
+                saveData();
+                renderEmpty();
+            };
+    
+            cell.appendChild(fileContainer);
+            cell.appendChild(removeBtn);
+
+            // --- Apply new click logic based on column and file type ---
+            if (key === 'Chart') {
+                // Charts are always PDF and open in modal
+                iconLink.href = '#';
+                iconLink.onclick = (e) => {
+                    e.preventDefault();
+                    openPdfModal(fileData.dataUrl, fileData.name);
+                };
+            } else if (key === 'Extracted Summary') {
+                if (isHtml) {
+                    // HTML opens in a modal (just like PDF)
+                    iconLink.href = '#';
+                    iconLink.onclick = (e) => {
+                        e.preventDefault();
+                        openPdfModal(fileData.dataUrl, fileData.name);
+                    };
+                } else if (isPdf) {
+                    // PDF opens in a modal
+                    iconLink.href = '#';
+                    iconLink.onclick = (e) => {
+                        e.preventDefault();
+                        openPdfModal(fileData.dataUrl, fileData.name);
+                    };
+                } else {
+                    // Fallback for any other file types (shouldn't happen with validation)
+                    iconLink.href = fileData.dataUrl;
+                    iconLink.target = '_blank';
+                }
+            } else {
+                // Default fallback
+                iconLink.href = fileData.dataUrl;
+                iconLink.target = '_blank';
+            }
+            // --- End of new click logic ---
+        };
+    
+        const renderEmpty = () => {
+            cell.innerHTML = 'Drop file or click';
+            cell.classList.remove('has-file');
+        };
+    
+        const handleFileAttachment = (file) => {
+            if (!file) return;
+            const allowedTypes = acceptMime.split(',');
+            if (!allowedTypes.includes(file.type)) {
+                showNotification(`Invalid file type. Please upload ${acceptExtension}.`, 'error');
+                return;
+            }
+    
+            const reader = new FileReader();
+            reader.onload = () => {
+                patient[key] = {
+                    name: file.name,
+                    dataUrl: reader.result,
+                };
+                saveData();
+                renderAttachedFile();
+            };
+            reader.onerror = () => {
+                showNotification('Error reading file.', 'error');
+            };
+            reader.readAsDataURL(file);
+        };
+    
+        // Click to browse
+        cell.onclick = () => {
+            if (!patient[key]) {
+                fileInput.click();
+            }
+        };
+        fileInput.onchange = (e) => {
+            handleFileAttachment(e.target.files[0]);
+            fileInput.value = ''; // Reset for next upload
+        };
+    
+        // Drag and drop events
+        cell.ondragover = (e) => {
+            e.preventDefault();
+            if (!patient[key]) {
+                cell.classList.add('drag-over');
+            }
+        };
+        cell.ondragenter = (e) => {
+            e.preventDefault();
+            if (!patient[key]) {
+                cell.classList.add('drag-over');
+            }
+        };
+        cell.ondragleave = (e) => {
+            e.preventDefault();
+            cell.classList.remove('drag-over');
+        };
+        cell.ondrop = (e) => {
+            e.preventDefault();
+            cell.classList.remove('drag-over');
+            if (!patient[key] && e.dataTransfer.files.length > 0) {
+                handleFileAttachment(e.dataTransfer.files[0]);
+            }
+        };
+    
+        // Initial render
+        if (patient[key] && patient[key].name) {
+            renderAttachedFile();
+        } else {
+            renderEmpty();
+        }
+    
+        // Append hidden file input
+        cell.appendChild(fileInput);
+        return cell;
+    };
+
     const setupEventListeners = () => {
         ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
             uploadArea.addEventListener(eventName, e => { e.preventDefault(); e.stopPropagation(); }, false);
@@ -595,7 +812,7 @@ document.addEventListener('DOMContentLoaded', () => {
         uploadArea.addEventListener('drop', e => { for (const file of e.dataTransfer.files) handleFile(file); }, false);
         uploadArea.addEventListener('click', () => fileInput.click());
         uploadAnotherBtn.addEventListener('click', () => fileInput.click());
-        fileInput.addEventListener('change', e => { for (const file of e.target.files) handleFile(file); fileInput.value = ''; });
+        fileInput.addEventListener('change', e => { for (const file of e.dataTransfer.files) handleFile(file); fileInput.value = ''; });
         submitDosBtn.addEventListener('click', () => {
             const dos = dosInput.value;
             if (!dos) { showNotification('Please select a Date of Service.', 'error'); return; }
@@ -603,11 +820,26 @@ document.addEventListener('DOMContentLoaded', () => {
             processPrimaryData(appState.fileToProcess, dos);
             appState.fileToProcess = null;
         });
+
+        // PDF Modal close events
+        pdfModalCloseBtn.onclick = closePdfModal;
+        pdfModal.onclick = (e) => {
+            // Close if clicking on the overlay (outside the content)
+            if (e.target === pdfModal) {
+                closePdfModal();
+            }
+        };
     };
 
     const init = () => {
-        loadData();
-        setupEventListeners();
+        try {
+            loadData();
+            setupEventListeners();
+        } catch (e) {
+            console.error("Critical error on initialization:", e);
+            showNotification('Application failed to start. Please clear cache or site data.', 'error');
+        }
     };
     init();
 });
+
