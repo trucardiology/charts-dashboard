@@ -24,7 +24,23 @@ document.addEventListener('DOMContentLoaded', () => {
         columnOrder: [], 
         fileToProcess: null
     };
-    const LOCAL_STORAGE_KEY = 'clinicalTaskListData';
+    
+    // --- Database Setup ---
+    const DB_NAME = 'ClinicalTaskListDB';
+    const DB_VERSION = 1;
+    const PATIENT_LIST_STORE = 'patientLists';
+    const APP_SETTINGS_STORE = 'appSettings';
+
+    let dbPromise = idb.openDB(DB_NAME, DB_VERSION, {
+        upgrade(db) {
+            if (!db.objectStoreNames.contains(PATIENT_LIST_STORE)) {
+                db.createObjectStore(PATIENT_LIST_STORE); // Key will be DOS string
+            }
+            if (!db.objectStoreNames.contains(APP_SETTINGS_STORE)) {
+                db.createObjectStore(APP_SETTINGS_STORE); // Key will be setting name (e.g., 'reasonTags')
+            }
+        },
+    });
 
     // --- Utility & Helper Functions ---
     const showNotification = (message, type = 'info') => {
@@ -44,50 +60,69 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    const saveData = () => {
+    const saveData = async () => {
         try {
-            const dataToSave = {
-                ...appState,
-                reasonTags: Array.from(appState.reasonTags),
-                resultsNeededTags: Array.from(appState.resultsNeededTags),
-                visitTypeTags: Array.from(appState.visitTypeTags)
-            };
-            localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(dataToSave));
+            const db = await dbPromise;
+            const tx = db.transaction([PATIENT_LIST_STORE, APP_SETTINGS_STORE], 'readwrite');
+            
+            // Save all patient lists
+            const listStore = tx.objectStore(PATIENT_LIST_STORE);
+            await listStore.clear(); // Clear old data first
+            for (const dos in appState.patientLists) {
+                await listStore.put(appState.patientLists[dos], dos);
+            }
+
+            // Save all app settings (tags)
+            const settingsStore = tx.objectStore(APP_SETTINGS_STORE);
+            await settingsStore.put(Array.from(appState.reasonTags), 'reasonTags');
+            await settingsStore.put(Array.from(appState.resultsNeededTags), 'resultsNeededTags');
+            await settingsStore.put(Array.from(appState.visitTypeTags), 'visitTypeTags');
+            
+            await tx.done;
         } catch (e) {
-            console.error("Error saving to localStorage:", e);
-            showNotification('Error: Could not save data. Storage may be full.', 'error');
+            console.error("Error saving to IndexedDB:", e);
+            showNotification('Error: Could not save data to database.', 'error');
         }
     };
 
-    const loadData = () => {
-        const savedData = localStorage.getItem(LOCAL_STORAGE_KEY);
-        if (savedData) {
-            try {
-                const parsedData = JSON.parse(savedData);
-                appState.patientLists = parsedData.patientLists || {};
-                Object.values(appState.patientLists).forEach(list => {
-                    list.forEach(patient => {
-                        delete patient['Provider'];
-                        delete patient['Appt Time'];
-                        if (Array.isArray(patient['Visit Type'])) {
-                            patient['Visit Type'] = patient['Visit Type'][0] || '';
-                        }
-                        // Initialize new fields if they don't exist
-                        if (!patient.hasOwnProperty('Chart')) patient['Chart'] = null;
-                        if (!patient.hasOwnProperty('Extracted Summary')) patient['Extracted Summary'] = null;
-                    });
+    const loadData = async () => {
+        try {
+            const db = await dbPromise;
+            
+            // Load Patient Lists
+            const patientListsData = await db.getAll(PATIENT_LIST_STORE);
+            const patientListKeys = await db.getAllKeys(PATIENT_LIST_STORE);
+            appState.patientLists = {};
+            patientListKeys.forEach((key, index) => {
+                appState.patientLists[key] = patientListsData[index];
+            });
+
+            // Load App Settings
+            appState.reasonTags = new Set(await db.get(APP_SETTINGS_STORE, 'reasonTags') || []);
+            appState.resultsNeededTags = new Set(await db.get(APP_SETTINGS_STORE, 'resultsNeededTags') || []);
+            appState.visitTypeTags = new Set(await db.get(APP_SETTINGS_STORE, 'visitTypeTags') || []);
+
+            // Data cleanup (from old localStorage versions)
+            Object.values(appState.patientLists).forEach(list => {
+                list.forEach(patient => {
+                    delete patient['Provider'];
+                    delete patient['Appt Time'];
+                    if (Array.isArray(patient['Visit Type'])) {
+                        patient['Visit Type'] = patient['Visit Type'][0] || '';
+                    }
+                    if (!patient.hasOwnProperty('Chart')) patient['Chart'] = null;
+                    if (!patient.hasOwnProperty('Extracted Summary')) patient['Extracted Summary'] = null;
                 });
-                
-                appState.reasonTags = new Set(parsedData.reasonTags || []);
-                appState.resultsNeededTags = new Set(parsedData.resultsNeededTags || []);
-                appState.visitTypeTags = new Set(parsedData.visitTypeTags || []);
-                appState.columnOrder = (parsedData.columnOrder || []).filter(col => col !== 'Provider' && col !== 'Appt Time');
-                renderApp();
-            } catch (e) {
-                console.error("Error parsing saved data:", e);
-                showNotification('Error loading data. Local storage was corrupt and has been cleared.', 'error');
-                localStorage.removeItem(LOCAL_STORAGE_KEY); // Clear corrupt data
+            });
+
+            // For now, we'll build columnOrder dynamically. 
+            // This could also be saved to the settings store.
+            if (Object.keys(appState.patientLists).length > 0) {
+                 renderApp();
             }
+        } catch (e) {
+            console.error("Error loading data from IndexedDB:", e);
+            showNotification('Error loading data from database. Data may be corrupt.', 'error');
         }
     };
 
@@ -223,7 +258,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return newRow;
             });
             appState.patientLists[dos] = processedList;
-            saveData();
+            saveData(); // This is now async, but we don't need to await it
             renderApp();
             showNotification(`Processed primary list for ${dos}.`, 'success');
         } catch (e) {
@@ -267,7 +302,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 });
             });
-            saveData();
+            saveData(); // This is now async, but we don't need to await it
             renderApp();
             showNotification(`Merged data for ${mergeCount} patient(s).`, 'success');
         } catch (e) {
@@ -308,9 +343,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 case 'Sex': formattedValue = formatSex(newValue); break;
                 case 'Age': formattedValue = formatAge(newValue); break;
             }
-            patient[header] = formattedValue;
-            saveData();
-            renderApp(); 
+            
+            if (patient[header] !== formattedValue) {
+                patient[header] = formattedValue;
+                saveData(); // Save changes
+                // We re-render fully on blur to ensure formatting is applied
+                renderApp(); 
+            }
         });
 
         cellContent.addEventListener('keydown', (e) => {
@@ -393,7 +432,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     isPrinted: false, isDone: false, isCancelled: false,
                 };
                 appState.patientLists[dos].push(newPatient);
-                saveData();
+                saveData(); // This is now async
                 renderApp();
             };
             dosHeader.appendChild(headerText);
@@ -444,7 +483,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             isPrinted: false, isDone: false, isCancelled: false
                         };
                         appState.patientLists[dos].push(newPatient);
-                        saveData();
+                        saveData(); // This is now async
                         renderApp();
                     };
                     displayOrder.forEach(header => {
@@ -485,7 +524,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             checkbox.className = 'h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500';
                             checkbox.addEventListener('change', (e) => {
                                 patient[prop] = e.target.checked;
-                                saveData();
+                                saveData(); // This is now async
                                 updateRowStyle();
                             });
                             cell.classList.add('text-center');
@@ -538,7 +577,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 tagSet.add(newValue);
                 updateDatalist(datalistId, tagSet);
             }
-            saveData();
+            saveData(); // This is now async
         });
         return input;
     };
@@ -556,7 +595,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 tag.innerHTML = `${item} <button class="reason-tag-remove ml-1.5 hover:text-red-900">&times;</button>`;
                 tag.querySelector('button').onclick = () => {
                     patient[key] = patient[key].filter(i => i !== item);
-                    saveData();
+                    saveData(); // This is now async
                     renderTags();
                 };
                 container.appendChild(tag);
@@ -580,7 +619,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     tagSet.add(newItem);
                     updateDatalist(datalistId, tagSet);
                 }
-                saveData();
+                saveData(); // This is now async
                 renderTags();
                 input.value = '';
             }
@@ -605,7 +644,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (item.completed) tag.classList.add('line-through', 'opacity-70');
                 tag.addEventListener('click', () => {
                     item.completed = !item.completed;
-                    saveData();
+                    saveData(); // This is now async
                     renderTags();
                 });
                 const removeBtn = document.createElement('button');
@@ -613,8 +652,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 removeBtn.innerHTML = '&times;';
                 removeBtn.onclick = (e) => {
                     e.stopPropagation();
-                    patient['Results Needed'] = patient['Results Needed'].filter(r => r.name !== item.name);
-                    saveData();
+                    patient['Results Needed'] = patient['ResultsNeeded'].filter(r => r.name !== item.name);
+                    saveData(); // This is now async
                     renderTags();
                 };
                 tag.appendChild(removeBtn);
@@ -637,7 +676,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     appState.resultsNeededTags.add(newItemName);
                     updateDatalist('results-needed-datalist', appState.resultsNeededTags);
                 }
-                saveData();
+                saveData(); // This is now async
                 renderTags();
                 input.value = '';
             }
@@ -680,7 +719,7 @@ document.addEventListener('DOMContentLoaded', () => {
             removeBtn.onclick = (e) => {
                 e.stopPropagation();
                 patient[key] = null;
-                saveData();
+                saveData(); // This is now async
                 renderEmpty();
             };
     
@@ -742,7 +781,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     name: file.name,
                     dataUrl: reader.result,
                 };
-                saveData();
+                saveData(); // This is now async
                 renderAttachedFile();
             };
             reader.onerror = () => {
@@ -831,9 +870,9 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     };
 
-    const init = () => {
+    const init = async () => {
         try {
-            loadData();
+            await loadData();
             setupEventListeners();
         } catch (e) {
             console.error("Critical error on initialization:", e);
