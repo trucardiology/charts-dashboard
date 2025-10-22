@@ -842,7 +842,8 @@ document.addEventListener('DOMContentLoaded', () => {
         uploadArea.addEventListener('drop', e => { for (const file of e.dataTransfer.files) handleFile(file); }, false);
         uploadArea.addEventListener('click', () => fileInput.click());
         uploadAnotherBtn.addEventListener('click', () => fileInput.click());
-        fileInput.addEventListener('change', e => { for (const file of e.dataTransfer.files) handleFile(file); fileInput.value = ''; });
+        // Corrected: Use e.target.files for 'change' event, not e.dataTransfer.files
+        fileInput.addEventListener('change', e => { for (const file of e.target.files) handleFile(file); fileInput.value = ''; });
         submitDosBtn.addEventListener('click', () => {
             const dos = dosInput.value;
             if (!dos) { showNotification('Please select a Date of Service.', 'error'); return; }
