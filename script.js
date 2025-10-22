@@ -703,9 +703,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 };
             } else if (key === 'Extracted Summary') {
                 if (isHtml) {
-                    // HTML opens in a new tab
-                    fileName.href = fileData.dataUrl;
-                    fileName.target = '_blank';
+                    // HTML opens in a modal (just like PDF)
+                    fileName.href = '#';
+                    fileName.onclick = (e) => {
+                        e.preventDefault();
+                        openPdfModal(fileData.dataUrl, fileData.name);
+                    };
                 } else if (isPdf) {
                     // PDF opens in a modal
                     fileName.href = '#';
@@ -845,4 +848,5 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     init();
 });
+
 
