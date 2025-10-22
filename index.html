@@ -1,1 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Charts Task List Generator</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- SheetJS/xlsx library for reading CSV/XLS files -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- Google Fonts for modern typography -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Custom Stylesheet -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-gray-50 text-gray-800">
 
+    <div id="app" class="max-w-screen-2xl mx-auto p-4 md:p-8">
+        <header class="mb-8">
+            <h1 class="text-4xl font-bold text-gray-900">Charts Task List</h1>
+            <p class="text-md text-gray-600 mt-1">Dashboard for charts.</p>
+        </header>
+
+        <!-- File Upload Area -->
+        <div id="upload-area" class="border-2 border-dashed border-gray-300 rounded-lg p-10 text-center cursor-pointer hover:border-blue-500 hover:bg-gray-100 transition-colors">
+            <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
+                <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <p class="mt-2 text-lg font-medium text-gray-700">Drag & drop your files here</p>
+            <p class="text-sm text-gray-500">or click to select files</p>
+            <p class="mt-4 text-xs text-gray-500">Supports .csv, .xls, .xlsx</p>
+        </div>
+
+        <!-- Hidden file input triggered by upload area click -->
+        <input type="file" id="file-input" class="hidden" multiple accept=".csv, .xls, .xlsx, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+
+        <!-- Controls Area (initially hidden) -->
+        <div id="controls-area" class="hidden flex items-center gap-4 mb-6">
+            <button id="upload-another-btn" class="bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors shadow-sm">
+                Upload Another File
+            </button>
+        </div>
+
+        <!-- Main data display area where patient lists will be rendered -->
+        <div id="data-display-area" class="mt-8 space-y-6"></div>
+
+        <!-- Modal for Date of Service selection -->
+        <div id="dos-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+            <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+                <div class="mt-3 text-center">
+                    <h3 class="text-lg leading-6 font-medium text-gray-900">Select Date of Service</h3>
+                    <div class="mt-2 px-7 py-3">
+                        <input type="date" id="dos-input" class="w-full px-3 py-2 text-gray-700 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    </div>
+                    <div class="items-center px-4 py-3">
+                        <button id="submit-dos-btn" class="px-4 py-2 bg-blue-600 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            Process File
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Notification container for errors or messages -->
+        <div id="notification-container" class="fixed bottom-5 right-5 z-50"></div>
+    </div>
+
+    <!-- Custom JavaScript -->
+    <script src="script.js"></script>
+</body>
+</html>

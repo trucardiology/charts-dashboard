@@ -1,1 +1,32 @@
+body {
+    font-family: 'Inter', sans-serif;
+}
 
+/* Custom styles for better UX */
+.reason-tag {
+    transition: background-color 0.2s ease-in-out;
+}
+
+.reason-tag-remove:hover {
+    background-color: #fca5a5; /* red-300 on hover */
+}
+
+/* Style for the collapsible details/summary element */
+details > summary {
+    list-style: none;
+}
+
+details > summary::-webkit-details-marker {
+    display: none;
+}
+
+details > summary > span::before {
+    content: '▶';
+    margin-right: 0.5rem;
+    display: inline-block;
+    transition: transform 0.2s;
+}
+
+details[open] > summary > span::before {
+    transform: rotate(90deg);
+}
