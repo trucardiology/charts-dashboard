@@ -660,24 +660,18 @@ document.addEventListener('DOMContentLoaded', () => {
             cell.innerHTML = ''; // Clear cell
             cell.classList.add('has-file');
     
-            const fileInfo = document.createElement('div');
-            fileInfo.className = 'file-info';
+            const fileContainer = document.createElement('div');
+            fileContainer.className = 'file-info';
     
-            // Icon
-            const icon = document.createElement('span');
+            // Clickable Icon
+            const iconLink = document.createElement('a');
             const isPdf = fileData.name.toLowerCase().endsWith('.pdf');
             const isHtml = fileData.name.toLowerCase().endsWith('.html');
-            icon.textContent = isPdf ? '📄' : (isHtml ? '💻' : '📎');
-            icon.className = 'text-lg';
+            iconLink.textContent = isPdf ? '📄' : (isHtml ? '💻' : '📎');
+            iconLink.className = 'text-2xl cursor-pointer'; // Make icon larger
+            iconLink.title = `Click to open ${fileData.name}`; // Keep the title for hover
             
-            // File name (clickable link)
-            const fileName = document.createElement('a');
-            fileName.className = 'file-name';
-            fileName.textContent = fileData.name;
-            fileName.title = `Click to open ${fileData.name}`;
-            
-            fileInfo.appendChild(icon);
-            fileInfo.appendChild(fileName);
+            fileContainer.appendChild(iconLink);
     
             const removeBtn = document.createElement('button');
             removeBtn.className = 'remove-file-btn';
@@ -690,41 +684,41 @@ document.addEventListener('DOMContentLoaded', () => {
                 renderEmpty();
             };
     
-            cell.appendChild(fileInfo);
+            cell.appendChild(fileContainer);
             cell.appendChild(removeBtn);
 
             // --- Apply new click logic based on column and file type ---
             if (key === 'Chart') {
                 // Charts are always PDF and open in modal
-                fileName.href = '#';
-                fileName.onclick = (e) => {
+                iconLink.href = '#';
+                iconLink.onclick = (e) => {
                     e.preventDefault();
                     openPdfModal(fileData.dataUrl, fileData.name);
                 };
             } else if (key === 'Extracted Summary') {
                 if (isHtml) {
                     // HTML opens in a modal (just like PDF)
-                    fileName.href = '#';
-                    fileName.onclick = (e) => {
+                    iconLink.href = '#';
+                    iconLink.onclick = (e) => {
                         e.preventDefault();
                         openPdfModal(fileData.dataUrl, fileData.name);
                     };
                 } else if (isPdf) {
                     // PDF opens in a modal
-                    fileName.href = '#';
-                    fileName.onclick = (e) => {
+                    iconLink.href = '#';
+                    iconLink.onclick = (e) => {
                         e.preventDefault();
                         openPdfModal(fileData.dataUrl, fileData.name);
                     };
                 } else {
                     // Fallback for any other file types (shouldn't happen with validation)
-                    fileName.href = fileData.dataUrl;
-                    fileName.target = '_blank';
+                    iconLink.href = fileData.dataUrl;
+                    iconLink.target = '_blank';
                 }
             } else {
                 // Default fallback
-                fileName.href = fileData.dataUrl;
-                fileName.target = '_blank';
+                iconLink.href = fileData.dataUrl;
+                iconLink.target = '_blank';
             }
             // --- End of new click logic ---
         };
@@ -818,7 +812,7 @@ document.addEventListener('DOMContentLoaded', () => {
         uploadArea.addEventListener('drop', e => { for (const file of e.dataTransfer.files) handleFile(file); }, false);
         uploadArea.addEventListener('click', () => fileInput.click());
         uploadAnotherBtn.addEventListener('click', () => fileInput.click());
-        fileInput.addEventListener('change', e => { for (const file of e.target.files) handleFile(file); fileInput.value = ''; });
+        fileInput.addEventListener('change', e => { for (const file of e.dataTransfer.files) handleFile(file); fileInput.value = ''; });
         submitDosBtn.addEventListener('click', () => {
             const dos = dosInput.value;
             if (!dos) { showNotification('Please select a Date of Service.', 'error'); return; }
@@ -848,5 +842,4 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     init();
 });
-
 
