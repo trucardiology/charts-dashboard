@@ -8,9 +8,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_DIRECTORY = path.join(__dirname, 'data');
 const DATABASE_PATH = path.join(DATA_DIRECTORY, 'app.db');
+const PUBLIC_DIRECTORY = path.join(__dirname, 'public');
 
 app.use(express.json({ limit: '25mb' }));
-app.use(express.static(__dirname));
+app.use(express.static(PUBLIC_DIRECTORY));
 
 let db;
 
@@ -130,7 +131,7 @@ app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api/')) {
         return next();
     }
-    res.sendFile(path.join(__dirname, 'index.html'));
+    res.sendFile(path.join(PUBLIC_DIRECTORY, 'index.html'));
 });
 
 initialiseDatabase()
