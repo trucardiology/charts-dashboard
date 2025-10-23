@@ -25,22 +25,8 @@ document.addEventListener('DOMContentLoaded', () => {
         fileToProcess: null
     };
     
-    // --- Database Setup ---
-    const DB_NAME = 'ClinicalTaskListDB';
-    const DB_VERSION = 1;
-    const PATIENT_LIST_STORE = 'patientLists';
-    const APP_SETTINGS_STORE = 'appSettings';
-
-    let dbPromise = idb.openDB(DB_NAME, DB_VERSION, {
-        upgrade(db) {
-            if (!db.objectStoreNames.contains(PATIENT_LIST_STORE)) {
-                db.createObjectStore(PATIENT_LIST_STORE); // Key will be DOS string
-            }
-            if (!db.objectStoreNames.contains(APP_SETTINGS_STORE)) {
-                db.createObjectStore(APP_SETTINGS_STORE); // Key will be setting name (e.g., 'reasonTags')
-            }
-        },
-    });
+    // --- Server API Configuration ---
+    const API_ENDPOINT = '/api/state';
 
     // --- Utility & Helper Functions ---
     const showNotification = (message, type = 'info') => {
@@ -62,45 +48,44 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const saveData = async () => {
         try {
-            const db = await dbPromise;
-            const tx = db.transaction([PATIENT_LIST_STORE, APP_SETTINGS_STORE], 'readwrite');
-            
-            // Save all patient lists
-            const listStore = tx.objectStore(PATIENT_LIST_STORE);
-            await listStore.clear(); // Clear old data first
-            for (const dos in appState.patientLists) {
-                await listStore.put(appState.patientLists[dos], dos);
-            }
+            const payload = {
+                patientLists: appState.patientLists,
+                reasonTags: Array.from(appState.reasonTags),
+                resultsNeededTags: Array.from(appState.resultsNeededTags),
+                visitTypeTags: Array.from(appState.visitTypeTags),
+            };
 
-            // Save all app settings (tags)
-            const settingsStore = tx.objectStore(APP_SETTINGS_STORE);
-            await settingsStore.put(Array.from(appState.reasonTags), 'reasonTags');
-            await settingsStore.put(Array.from(appState.resultsNeededTags), 'resultsNeededTags');
-            await settingsStore.put(Array.from(appState.visitTypeTags), 'visitTypeTags');
-            
-            await tx.done;
+            const response = await fetch(API_ENDPOINT, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+
+            if (!response.ok) {
+                throw new Error(`Server responded with ${response.status}`);
+            }
         } catch (e) {
-            console.error("Error saving to IndexedDB:", e);
-            showNotification('Error: Could not save data to database.', 'error');
+            console.error("Error saving to server:", e);
+            showNotification('Error: Could not save data to server.', 'error');
         }
     };
 
     const loadData = async () => {
         try {
-            const db = await dbPromise;
-            
+            const response = await fetch(API_ENDPOINT);
+            if (!response.ok) {
+                throw new Error(`Server responded with ${response.status}`);
+            }
+
+            const data = await response.json();
+
             // Load Patient Lists
-            const patientListsData = await db.getAll(PATIENT_LIST_STORE);
-            const patientListKeys = await db.getAllKeys(PATIENT_LIST_STORE);
-            appState.patientLists = {};
-            patientListKeys.forEach((key, index) => {
-                appState.patientLists[key] = patientListsData[index];
-            });
+            appState.patientLists = data.patientLists || {};
 
             // Load App Settings
-            appState.reasonTags = new Set(await db.get(APP_SETTINGS_STORE, 'reasonTags') || []);
-            appState.resultsNeededTags = new Set(await db.get(APP_SETTINGS_STORE, 'resultsNeededTags') || []);
-            appState.visitTypeTags = new Set(await db.get(APP_SETTINGS_STORE, 'visitTypeTags') || []);
+            appState.reasonTags = new Set(data.reasonTags || []);
+            appState.resultsNeededTags = new Set(data.resultsNeededTags || []);
+            appState.visitTypeTags = new Set(data.visitTypeTags || []);
 
             // Data cleanup (from old localStorage versions)
             Object.values(appState.patientLists).forEach(list => {
@@ -121,8 +106,8 @@ document.addEventListener('DOMContentLoaded', () => {
                  renderApp();
             }
         } catch (e) {
-            console.error("Error loading data from IndexedDB:", e);
-            showNotification('Error loading data from database. Data may be corrupt.', 'error');
+            console.error("Error loading data from server:", e);
+            showNotification('Error loading data from server. Please try again.', 'error');
         }
     };
 
@@ -851,7 +836,12 @@ document.addEventListener('DOMContentLoaded', () => {
         uploadArea.addEventListener('drop', e => { for (const file of e.dataTransfer.files) handleFile(file); }, false);
         uploadArea.addEventListener('click', () => fileInput.click());
         uploadAnotherBtn.addEventListener('click', () => fileInput.click());
-        fileInput.addEventListener('change', e => { for (const file of e.dataTransfer.files) handleFile(file); fileInput.value = ''; });
+        fileInput.addEventListener('change', e => {
+            for (const file of e.target.files) {
+                handleFile(file);
+            }
+            fileInput.value = '';
+        });
         submitDosBtn.addEventListener('click', () => {
             const dos = dosInput.value;
             if (!dos) { showNotification('Please select a Date of Service.', 'error'); return; }
